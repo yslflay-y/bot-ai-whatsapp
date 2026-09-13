@@ -1,0 +1,250 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SenderType {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum ReminderStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id            String         @id @default(cuid())
+  jid           String         @unique
+  phoneNumber   String         @unique
+  name          String?
+  role          Role           @default(USER)
+  timezone      String         @default("Asia/Jakarta")
+  preferences   Json?
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  conversations Conversation[]
+  memories      Memory[]
+  notes         Note[]
+  reminders     Reminder[]
+  media         Media[]
+  aiUsages      AiUsage[]
+  auditLogs     AuditLog[]
+
+  @@index([jid])
+  @@index([phoneNumber])
+  @@map("users")
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String?
+  isActive  Boolean   @default(true)
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("conversations")
+}
+
+model Message {
+  id                String          @id @default(cuid())
+  conversationId    String
+  externalMessageId String?         @unique
+  senderType        SenderType
+  content           String          @db.Text
+  contentType       String          @default("TEXT")
+  tokenCount        Int?
+  metadata          Json?
+  createdAt         DateTime        @default(now())
+
+  conversation      Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  toolExecutions    ToolExecution[]
+
+  @@index([conversationId])
+  @@index([externalMessageId])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+model Memory {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String?
+  content   String   @db.Text
+  category  String   @default("GENERAL")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([category])
+  @@map("memories")
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  content   String   @db.Text
+  tags      String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("notes")
+}
+
+model Reminder {
+  id              String         @id @default(cuid())
+  userId          String
+  message         String         @db.Text
+  targetTimeUtc   DateTime
+  cronExpression  String?
+  isRecurring     Boolean        @default(false)
+  status          ReminderStatus @default(SCHEDULED)
+  lastTriggeredAt DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([targetTimeUtc])
+  @@index([status])
+  @@map("reminders")
+}
+
+model ScheduledJob {
+  id        String    @id @default(cuid())
+  jobId     String    @unique
+  jobType   String
+  payload   Json
+  runAt     DateTime
+  status    JobStatus @default(PENDING)
+  attempts  Int       @default(0)
+  lastError String?   @db.Text
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([jobType])
+  @@index([status])
+  @@index([runAt])
+  @@map("scheduled_jobs")
+}
+
+model Media {
+  id           String   @id @default(cuid())
+  userId       String?
+  messageId    String?
+  originalName String?
+  mimeType     String
+  sizeBytes    Int
+  storagePath  String
+  checksum     String?
+  createdAt    DateTime @default(now())
+
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([mimeType])
+  @@index([createdAt])
+  @@map("media")
+}
+
+model ToolExecution {
+  id           String   @id @default(cuid())
+  messageId    String?
+  toolName     String
+  inputParams  Json
+  outputResult Json?
+  status       String   @default("SUCCESS")
+  durationMs   Int?
+  error        String?  @db.Text
+  createdAt    DateTime @default(now())
+
+  message      Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([toolName])
+  @@index([status])
+  @@index([createdAt])
+  @@map("tool_executions")
+}
+
+model AiUsage {
+  id               String   @id @default(cuid())
+  userId           String?
+  provider         String
+  model            String
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  estimatedCostUsd Float    @default(0.0)
+  createdAt        DateTime @default(now())
+
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([provider])
+  @@index([model])
+  @@index([createdAt])
+  @@map("ai_usage")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  resource  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String   @db.Text
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
